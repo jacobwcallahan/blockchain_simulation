@@ -1,0 +1,9 @@
+So with the limit on neighbors, are these neighbors two ways? Like if node 1 is a neighbor of node 2, does that mean node 2 is also a neighbor of node 1?
+
+Does each miner have one node? And does each miner have one wallet?
+
+!!! We determine the time taken for blocks to be mined by the random chance of hitting a hash correct?
+This is essentially uniformly distributed odds, 
+but the actual bitcoin mining times are not uniformly distributed around the expected time, 
+they are (relatively) normally distributed, or at least distributed between 8 and 12 minutes.
+How can I do that?
