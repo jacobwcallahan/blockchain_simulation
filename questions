@@ -2,8 +2,8 @@ So with the limit on neighbors, are these neighbors two ways? Like if node 1 is 
 
 Does each miner have one node? And does each miner have one wallet?
 
-!!! We determine the time taken for blocks to be mined by the random chance of hitting a hash correct?
-This is essentially uniformly distributed odds, 
-but the actual bitcoin mining times are not uniformly distributed around the expected time, 
-they are (relatively) normally distributed, or at least distributed between 8 and 12 minutes.
-How can I do that?
+Since the hash rate for all the miners is the same, 
+I divided the difficulty by the hashrate and only found one number per miner. This number was the time to mine. 
+Is this alright? it saved me significant time running the simulation
+
+

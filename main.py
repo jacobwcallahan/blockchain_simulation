@@ -3,6 +3,7 @@ from core import Node, Block, Miner, BlockChain, Transaction, Wallet
 import random
 import math
 from init_objs import init_nodes, init_wallets, init_miners
+from stats import Stats
 
 
 def get_winning_miner(miners, difficulty):
@@ -34,12 +35,11 @@ def mine_block(miners, difficulty):
     return winning_miner
 
 
-def make_random_transaction(env, blockchain, senders, receivers, amount=None):
+def make_random_transaction(env, blockchain, sender, receivers, amount=None):
     """
     Adds transactions to the block.
     """
     receiver = random.choice(receivers)
-    sender = random.choice(senders)
 
     # Ensures the sender has a balance > 0
 
@@ -48,79 +48,95 @@ def make_random_transaction(env, blockchain, senders, receivers, amount=None):
         receiver = random.choice(receivers)
 
     if amount is None:
-        amount = random.uniform(0, sender.balance)
 
-        amount = math.floor(amount * 100000) / 100000
+        amount = random.uniform(0, sender.balance)
 
         if amount > sender.balance:
             print(amount)
             print(sender.balance)
+            raise ValueError("Sender does not have enough balance")
 
     transaction = Transaction(env, amount=amount, receiver=receiver, sender=sender)
-    blockchain.add_transaction(transaction)
+    return transaction
 
 
-def add_transactions(
-    env,
-    wallets,
-    num_transactions,
-    interval,
-    blockchain,
-):
+def add_transactions(env, wallets, num_transactions, interval, blockchain, end=False):
     """
     Adds transactions to the block.
     """
 
-    transaction_count = 0
+    tx_count = 0
 
-    while transaction_count < num_transactions:
-        receivers = []
-        senders = []
+    while tx_count < (num_transactions * len(wallets)) and not blockchain.stop_process:
 
-        for wallet in wallets:
-            if wallet.balance == 0:
-                receivers.append(wallet)
-            else:
-                receivers.append(wallet)
-                senders.append(wallet)
+        # for every wallet with a balance, makes a random transaction to a random receiver
+        # if the wallet has not made num_transactions transactions out
 
-        if len(senders) != 0:
-            make_random_transaction(env, blockchain, senders, receivers)
-            transaction_count += 1
+        for i in range(len(wallets)):
+            if wallets[i].balance > 0 and len(wallets[i].tx_out) < num_transactions:
+                transaction = make_random_transaction(
+                    env, blockchain, wallets[i], receivers=wallets
+                )
+                blockchain.add_transaction(transaction)
+                tx_count += 1
+
+            # Checks for negative balance
+            if wallets[i].balance < 0:
+                print(f"Wallet {i} has {wallets[i].balance} balance")
+                raise ValueError("Wallet has negative balance")
+
+            # Checks for duplicate transactions
+            if len(wallets[i].tx_out) > num_transactions:
+                if len(wallets[i].tx_out) != len(set(wallets[i].tx_out)):
+                    print(f"Wallet {i} has duplicate transactions")
+                    raise ValueError("Wallet has duplicate transactions and too many")
+                raise ValueError("Wallet has too many transactions")
 
         yield env.timeout(interval)
+
+    if end:
+        blockchain.stop_process = True
 
 
 def begin_mining(
     env,
     miners,
     blockchain,
-    years,
     blocktime,
     hashrate,
     print_interval,
-    reward,
-    halving,
+    num_transactions,
+    nodes,
+    years,
+    difficulty=None,
+    blocks=None,
 ):
 
-    total_blocks = math.ceil(years * 365 * 24 * 60 * 60 / blocktime)
-    print(f"Total Blocks: {total_blocks}")
-    reward_amount = reward
+    if difficulty is None:
+        difficulty = blocktime * (hashrate * len(miners))
 
-    block_times = []
-
-    difficulty = blocktime * (hashrate * len(miners))
+    if blocks is None and years is None and num_transactions == 0:
+        raise ValueError("Either blocks or years or num_transactions must be provided")
 
     diff_interval = 2016
-    halving_count = 0
 
-    for i in range(total_blocks):
+    stats = Stats(
+        env=env,
+        print_interval=print_interval,
+        diff_interval=diff_interval,
+        blocktime=blocktime,
+        hashrate=hashrate,
+        years=years,
+        miners=miners,
+        nodes=nodes,
+        blockchain=blockchain,
+        blocks=blocks,
+        difficulty=difficulty,
+    )
 
-        if i % halving == 0 and halving_count < 35:
-            reward_amount = reward_amount * (0.5 ** (len(blockchain.blocks) // halving))
-            halving_count += 1
+    while True:
 
-        winning_miner = mine_block(miners, difficulty)
+        winning_miner = mine_block(miners, stats.difficulty)
 
         yield env.timeout(winning_miner.mine_time)
 
@@ -129,99 +145,109 @@ def begin_mining(
         # As well this node communicates with its neighbors and updates them.
         winning_miner.win_block(blockchain.get_current_block())
 
-        block_times.append(blockchain.get_current_block().time_since_last_block)
+        blockchain.finalize_block(winning_miner)
 
-        blockchain.finalize_block()
+        stats.add_block_time(blockchain.get_current_block().time_since_last_block)
 
-        reward_transaction = Transaction(
-            env, amount=reward_amount, receiver=winning_miner.wallet
-        )
+        # Adjusts difficulty every 2016 blocks
+        if len(stats.block_times) % diff_interval == 0:
+            stats.update_difficulty()
 
-        blockchain.coins += reward_amount
+        if len(blockchain.blocks) == stats.total_blocks:
+            blockchain.stop_process = True
 
-        blockchain.add_transaction(reward_transaction)
+        # Prints the blockchain every print_interval blocks and last block
 
-        if len(block_times) % diff_interval == 0:
-            difficulty = math.ceil(
-                difficulty
-                * (blocktime / (sum(block_times[-diff_interval:]) / diff_interval))
-            )
+        if len(blockchain.blocks) % print_interval == 0 or (
+            blockchain.stop_process and len(blockchain.tx_pool) <= 1
+        ):
 
-        if (i + 1) % print_interval == 0:
-            block_num = f"{i + 1}/{total_blocks}"
-            block_percent = f"{(round((i + 1)/total_blocks*100, 2))}%"
-            abt = (
-                round(sum(block_times[-print_interval:]) / print_interval, 2)
-                if len(block_times) >= print_interval
-                else 0
-            )
-            coins = blockchain.coins
+            # If the blockchain is indicated to be stopped and the pool is empty
+            # or the given input blocks(blocks) is reached
+            # This will print the stats and break the loop
+            if blockchain.stop_process and (
+                len(blockchain.tx_pool) <= 1 or stats.total_blocks == blocks
+            ):
+                print(f"End: {stats.get_stats_str()}")
+                break
 
-            print(
-                f"B: {block_num} {block_percent} | ABT: {abt} | Tx: {blockchain.total_transactions} Diff: {difficulty} | C: {coins // 1000}K"
-            )
+            else:
+                print(stats.get_stats_str())
 
-    print(f"Avg Block Time: {sum(block_times) / total_blocks}")
+    print(f"Avg Block Time: {sum(stats.block_times) / len(stats.block_times)}")
 
 
 def main(
-    num_miners=2,
-    hashrate=10000,
-    num_nodes=2,
-    num_neighbors=1,
-    blocktime=1000,
-    blocksize=100,
-    num_wallets=10,
-    num_transactions=10,
-    interval=10,
-    print_interval=10,
-    reward=100,
-    halving=100,
-    years=1,
+    num_miners,
+    num_nodes,
+    num_neighbors,
+    hashrate,
+    blocktime,
+    blocksize,
+    num_wallets,
+    num_transactions,
+    interval,
+    print_interval,
+    reward,
+    halving,
+    years,
+    blocks=None,
+    difficulty=None,
 ):
     if num_neighbors >= num_nodes:
         raise ValueError("Neighbors cannot be greater than or equal to nodes")
 
     env = simpy.Environment()
-
-    blockchain = BlockChain(env)
+    blockchain = BlockChain(env, blocksize, reward, halving)
     nodes = init_nodes(env, num_nodes, num_neighbors, blockchain)
     wallets = init_wallets(num_wallets)
-    miners = init_miners(
-        env, num_miners, hashrate, nodes, wallets, random_hashrate=False
-    )
+    miners = init_miners(env, num_miners, hashrate, nodes, wallets)
 
-    env.process(add_transactions(env, wallets, num_transactions, interval, blockchain))
+    env.process(
+        add_transactions(
+            env,
+            wallets,
+            num_transactions,
+            interval,
+            blockchain,
+            end=(num_transactions != 0 and blocks is None),
+        )
+    )
 
     env.process(
         begin_mining(
             env,
-            miners,
-            blockchain,
-            years,
-            blocktime,
-            hashrate,
-            print_interval,
-            reward,
-            halving,
+            miners=miners,
+            blockchain=blockchain,
+            blocktime=blocktime,
+            hashrate=hashrate,
+            print_interval=print_interval,
+            num_transactions=num_transactions,
+            nodes=nodes,
+            blocks=blocks,
+            years=years,
+            difficulty=difficulty,
         )
     )
 
     env.run()
 
-    # Transaction(env, amount=0.5, receiver=wallets[0], sender=miners[0].wallet)
-
 
 if __name__ == "__main__":
     main(
-        num_miners=4,
-        num_nodes=5,
-        num_neighbors=2,
-        num_wallets=100,
+        num_miners=2,
+        num_nodes=2,
+        num_neighbors=1,
+        num_wallets=10,
         hashrate=10000,
-        blocktime=100,
-        print_interval=1000,
-        num_transactions=0,
-        halving=1000,
-        years=10,
+        blocktime=3.27,
+        print_interval=100000,
+        num_transactions=100000,
+        blocksize=8000,
+        interval=5,
+        reward=51.8457072,
+        halving=9644000,
+        years=1,
+        difficulty=None,
+        blocks=10000000,
     )
