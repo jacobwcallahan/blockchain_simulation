@@ -109,6 +109,7 @@ def add_transactions(
 
         # for every wallet with a balance, makes a random transaction to a random receiver
         # if the wallet has not made num_transactions transactions out
+        made_tx = False
 
         for i in range(len(wallets)):
 
@@ -117,7 +118,7 @@ def add_transactions(
 
             if (
                 round(wallets[i].balance, 15) > 0
-                and wallets[i].tx_out < num_transactions
+                and wallets[i].tx_out < num_transactions - 20
             ):
                 transaction = make_random_transaction(
                     env,
@@ -130,6 +131,7 @@ def add_transactions(
 
                 blockchain.add_transaction(transaction)
                 tx_count += 1
+                made_tx = True
 
             # Checks for negative balance
             if wallets[i].balance < 0:
@@ -139,6 +141,32 @@ def add_transactions(
             # Checks for duplicate transactions
             if wallets[i].tx_out > num_transactions:
                 raise ValueError("Wallet has too many transactions")
+
+        if (
+            not made_tx
+            and sum(wallet.balance for wallet in wallets) > 0
+            and tx_count < (num_transactions * len(wallets))
+        ):
+            tx_wallets = [
+                wallet for wallet in wallets if wallet.tx_out < num_transactions
+            ]
+            not_tx_wallets = [wallet for wallet in wallets if wallet not in tx_wallets]
+
+            if len(not_tx_wallets) == 0:
+                not_tx_wallets = wallets
+                wallet = max(tx_wallets, key=lambda x: x.balance)
+                transaction = make_random_transaction(
+                    env,
+                    wallet,
+                    receivers=not_tx_wallets,
+                    miners=miners,
+                    interval=interval,
+                    num_transactions=num_transactions,
+                    amount=wallet.balance * 0.5,
+                )
+            blockchain.add_transaction(transaction)
+            tx_count += 1
+            made_tx = True
 
         yield env.timeout(interval)
 
@@ -332,23 +360,49 @@ def main(
 
 
 if __name__ == "__main__":
-    main(
-        num_miners=5,
-        num_nodes=2,
-        num_neighbors=1,
-        num_wallets=10,
-        hashrate=10000,
-        blocktime=3.27,
-        print_interval=1000000,
-        num_transactions=0,
-        blocksize=32000,
-        interval=10.0,
-        reward=51.8457072,
-        halving=964400,
-        years=10,
-        blocks=None,
-        difficulty=None,
-        latency=0,
-        bandwidth=float("inf"),
-        fee=0,
-    )
+
+    run = "btc"
+
+    if run == "btc":
+        main(
+            num_miners=15,
+            num_nodes=2,
+            num_neighbors=1,
+            num_wallets=1000,
+            hashrate=10000,
+            blocktime=600,
+            print_interval=100,
+            num_transactions=1000,
+            blocksize=4000,
+            interval=1,
+            reward=50,
+            halving=210000,
+            years=10,
+            blocks=None,
+            difficulty=None,
+            latency=0,
+            bandwidth=float("inf"),
+            fee=0,
+        )
+
+    if run == "bch":
+        main(
+            num_miners=15,
+            num_nodes=2,
+            num_neighbors=1,
+            num_wallets=1000,
+            hashrate=10000,
+            blocktime=600,
+            print_interval=100,
+            num_transactions=1000,
+            blocksize=4000,
+            interval=1,
+            reward=50,
+            halving=210000,
+            years=10,
+            blocks=None,
+            difficulty=None,
+            latency=0,
+            bandwidth=float("inf"),
+            fee=0,
+        )
