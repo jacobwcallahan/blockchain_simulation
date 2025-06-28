@@ -63,6 +63,8 @@ class Stats:
             "pool": 0,
             "io_requests": 0,
             "nmb": 0,
+            "fees": 0,
+            "network_time": 0,
         }
 
     def get_stats_str(self):
@@ -73,7 +75,7 @@ class Stats:
             f"B:{self.print_dict['block_num']}/{self.total_blocks}",
             f"{round(self.print_dict['block_percent'], 2)}%",
             f"ABT:{round(self.print_dict['abt'], 2)}s",
-            f"Diff:{round(self.print_dict['difficulty'] / 1000000, 2)}M",
+            f"Diff:{round(self.print_dict['difficulty'] / 1000000, 3)}M",
             f"H:{self.print_dict['hashrate']}",
             f"Infl:{round(self.print_dict['inflation'], 2)}%",
             f"ETA:{int(round(self.print_dict['eta'], 2))}s",
@@ -84,6 +86,12 @@ class Stats:
             f"Pool:{self.print_dict['pool']}",
             f"IO:{self.print_dict['io_requests']}",
         ]
+
+        if self.print_dict["network_time"] > 0:
+            print_list.append(f"ANT:{round(self.print_dict['network_time'], 2)}s")
+
+        if self.print_dict["fees"] > 0:
+            print_list.append(f"AFB:{round(self.print_dict['fees'], 2)}")
 
         return " ".join(print_list)
 
@@ -100,6 +108,12 @@ class Stats:
         )
 
     def update_print_dict(self):
+        """
+        Updates the print dictionary with the current statistics.
+        This is called every print interval.
+
+        The order of this matters (relatively)as some old values (e.g. block_num) are used in other calculations.
+        """
         time_since_last_print = self.env.now - self.last_print_time
 
         self.set_abt()
@@ -111,6 +125,10 @@ class Stats:
         self.set_inflation(time_since_last_print)
 
         self.set_eta()
+
+        self.set_fees()
+
+        self.set_network_time()
 
         self.set_block_num()
 
@@ -191,6 +209,18 @@ class Stats:
         )
 
     def set_nmb(self):
-        self.print_dict["nmb"] = (
-            sum(node.network_usage for node in self.nodes) / 1000000
+        self.print_dict["nmb"] = sum(node.network_usage for node in self.nodes) / (
+            1024 * 1024
+        )
+
+    def set_fees(self):
+        new_fees = self.blockchain.total_fees - self.print_dict["fees"]
+        self.print_dict["fees"] = new_fees / (
+            len(self.blockchain.blocks) - self.print_dict["block_num"]
+        )
+
+    def set_network_time(self):
+        # This is the sum of each node's broadcast times for the last print interval blocks
+        self.print_dict["network_time"] = sum(
+            sum(node.broadcast_times[-self.print_interval :]) for node in self.nodes
         )

@@ -15,7 +15,14 @@ class Node:
         ledger: The ledger of the node. This is a list of Block Objects that the node has added to its ledger.
     """
 
-    def __init__(self, env, ledger, id=None, num_neighbors=float("inf")):
+    def __init__(
+        self,
+        env,
+        bandwidth=float("inf"),
+        id=None,
+        num_neighbors=float("inf"),
+        latency=0,
+    ):
         """
         Initializes a node.
         """
@@ -26,6 +33,9 @@ class Node:
         self.ledger = []
         self.total_io_requests = 0
         self.network_usage = 0
+        self.bandwidth = bandwidth
+        self.broadcast_times = []
+        self.latency = latency
 
     def mine_block(self, block):
         """
@@ -34,18 +44,22 @@ class Node:
         self.ledger.append(block)
         self.env.process(self.broadcast_update(block))
 
-    def broadcast_update(self, block, latency=None, bandwidth=float("inf")):
+    def broadcast_update(self, block, latency=0):
         """
         Broadcasts the block to all neighbors.
         """
 
-        if bandwidth != float("inf"):
-            broadcast_time = block.size / bandwidth
+        if self.bandwidth != float("inf"):
+            broadcast_time = block.size / self.bandwidth
         else:
             broadcast_time = 0
 
+        if len(self.broadcast_times) < len(self.ledger):
+            self.broadcast_times.append(0)
+
         for i in range(len(self.neighbors)):
             neighbor = self.neighbors[i]
+
             # Checks if neighbor already has the block
             if neighbor.get_last_block() is not None:
                 if neighbor.get_last_block() == block:
@@ -53,45 +67,41 @@ class Node:
 
             self.total_io_requests += 1
             self.network_usage += block.size
+            self.broadcast_times[-1] += latency + broadcast_time
 
-            if latency is not None:
+            if latency != 0:
                 yield self.env.process(
-                    neighbor.receive_block(block, latency[i] + broadcast_time)
+                    neighbor.receive_block(block, self.latency + broadcast_time)
                 )
+
             else:
-                yield self.env.process(neighbor.receive_block(block))
+                yield self.env.process(
+                    neighbor.receive_block(block, latency=self.latency)
+                )
 
     def receive_block(self, block, latency=0):
         """
         Receives a block from a neighbor and adds it to the blockchain if it's valid.
         If the block is the same as the last block in the blockchain, it does nothing.
         If the block has an invalid ID, the last block in the blockchain is replaced with the new block if it's newer.
+        (Although this shouldn't happen, it's caught in broadcast_update)
+
+        Args:
+            block (Block): The block to receive.
+            latency (float): The latency of the block. Optional, defaults to 0.
         """
 
-        yield self.env.timeout(latency)
+        self.ledger.append(block)
 
-        # Check if ledger is empty
-        if len(self.ledger) == 0:
-            self.ledger.append(block)
-            return
+        yield self.env.timeout(latency + block.size / self.bandwidth)
+        if len(self.broadcast_times) < len(self.ledger):
+            self.broadcast_times.append(0)
 
-        last_block = self.ledger[-1]
+        self.broadcast_times[-1] += latency + block.size / self.bandwidth
 
-        # If the block has a valid ID, it is added to the blockchain
-        if last_block.block_id < block.block_id:
-            self.ledger.append(block)
-
-        # Notes its the same block and doesn't add it to the blockchain
-        # This is for the case where the block is the same as the last block in the blockchain
-        elif block == last_block:
-            return
-        else:
-            # if blocks are not equal and there is an id issue, the last block in the blockchain is replaced with the new block if it's newer
-            self.ledger[-1] = (
-                block if block.timestamp > last_block.timestamp else last_block
-            )
-
-        yield self.env.process(self.broadcast_update(self.ledger[-1]))
+        yield self.env.process(
+            self.broadcast_update(self.ledger[-1], latency=self.latency)
+        )
 
     def get_last_block(self):
         if len(self.ledger) == 0:
@@ -163,7 +173,7 @@ class Transaction:
         receiver: The receiver of the transaction.
     """
 
-    def __init__(self, env, amount, receiver, sender=None, fee=None):
+    def __init__(self, env, amount, receiver, sender=None):
         self.size = 256
         if amount is None:
             raise ValueError("Amount cannot be None")
@@ -254,6 +264,7 @@ class Block:
         self.blocksize = blocksize
         self.transactions = []
         self.full = False
+        self.fees = 0
 
     def add_transaction(self, transaction):
         if self.full:
@@ -302,7 +313,7 @@ class BlockChain:
         current_block: The current block being mined.
     """
 
-    def __init__(self, env, blocksize, reward, halving, fee=None):
+    def __init__(self, env, blocksize, reward, halving, fee=0):
         self.env = env
         self.blocks = []
         self.total_transactions = 0
@@ -312,6 +323,7 @@ class BlockChain:
 
         self.halving = halving
         self.fee = fee
+        self.total_fees = 0
         self.tx_pool = []
         self.stop_process = False
 
@@ -321,7 +333,9 @@ class BlockChain:
         if self.halving == 0:
             return self.reward
 
-        reward = self.reward * (0.5 ** (len(self.blocks) // self.halving))
+        reward = (
+            self.reward * (0.5 ** (len(self.blocks) // self.halving))
+        ) + self.current_block.fees
         return reward
 
     def finalize_block(self, winning_miner):
@@ -338,6 +352,13 @@ class BlockChain:
         if len(self.tx_pool) != 0:
             while not block.full:
                 transaction = self.tx_pool.pop(0)
+                # If the transaction is a transaction and not a reward, add the fee to the block fees
+                if transaction.type == "Transaction":
+                    fee = transaction.amount * self.fee
+                    transaction.amount -= fee
+                    self.current_block.fees += fee
+
+                    self.total_fees += fee
 
                 # Processes the receiver of transaction
                 transaction.add_balance()
@@ -373,7 +394,6 @@ class BlockChain:
                 self.env,
                 amount=reward_amount,
                 receiver=winning_miner.wallet,
-                fee=self.fee,
             )
             self.coins += reward_amount
             self.tx_pool.insert(0, reward_transaction)

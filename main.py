@@ -176,6 +176,12 @@ def begin_mining(
 
     print(f"Avg Block Time: {sum(stats.block_times) / len(stats.block_times)}")
 
+    print(
+        f"Avg Broadcast Time: {sum(sum(node.broadcast_times) for node in nodes) / len(nodes) / len(blockchain.blocks)}"
+    )
+    print(f"Total Broadcast Time: {sum(sum(node.broadcast_times) for node in nodes)}")
+    print(f"Total Fees: {blockchain.total_fees}")
+
 
 def main(
     num_miners,
@@ -193,13 +199,16 @@ def main(
     years,
     blocks=None,
     difficulty=None,
+    latency=0,
+    bandwidth=float("inf"),
+    fee=0,
 ):
     if num_neighbors >= num_nodes:
         raise ValueError("Neighbors cannot be greater than or equal to nodes")
 
     env = simpy.Environment()
-    blockchain = BlockChain(env, blocksize, reward, halving)
-    nodes = init_nodes(env, num_nodes, num_neighbors, blockchain)
+    blockchain = BlockChain(env, blocksize, reward, halving, fee)
+    nodes = init_nodes(env, num_nodes, num_neighbors, latency, bandwidth)
     wallets = init_wallets(num_wallets)
     miners = init_miners(env, num_miners, hashrate, nodes, wallets)
 
@@ -241,13 +250,16 @@ if __name__ == "__main__":
         num_wallets=10,
         hashrate=10000,
         blocktime=3.27,
-        print_interval=100000,
-        num_transactions=100000,
+        print_interval=100,
+        num_transactions=100,
         blocksize=8000,
         interval=5,
         reward=51.8457072,
         halving=9644000,
         years=1,
+        latency=0,
+        bandwidth=(1024 * 1024),
+        fee=0.001,
         difficulty=None,
-        blocks=10000000,
+        blocks=100000,
     )

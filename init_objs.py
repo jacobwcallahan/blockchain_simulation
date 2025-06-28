@@ -2,7 +2,7 @@ import random
 from core import Node, Miner, Wallet
 
 
-def init_nodes(env, num_nodes, max_neighbors, blockchain):
+def init_nodes(env, num_nodes, max_neighbors, latency, bandwidth):
     """
     Initializes the nodes for the simulation.
     """
@@ -10,7 +10,15 @@ def init_nodes(env, num_nodes, max_neighbors, blockchain):
 
     # Create nodes
     for i in range(num_nodes):
-        nodes.append(Node(env, id=i, num_neighbors=max_neighbors, ledger=[]))
+        nodes.append(
+            Node(
+                env,
+                id=i,
+                num_neighbors=max_neighbors,
+                latency=latency,
+                bandwidth=bandwidth,
+            )
+        )
 
     # Assign neighbors to each node
     for node in nodes:
