@@ -35,61 +35,6 @@ def mine_block(miners, difficulty):
     return winning_miner
 
 
-def make_random_transaction(
-    env, sender, receivers, miners, interval, num_transactions, amount=None
-):
-    """
-    Creates a transaction between a sender and a receiver.
-    This is based on the receiver with the least balance strictly for the purpose of the simulation.
-
-    If the sender has a minimum balance, the transaction will be made to a random receiver.
-
-    Args:
-        env (simpy.Environment): The environment.
-        blockchain (BlockChain): The blockchain.
-        sender (Wallet): The sender of the transaction.
-        receivers (list): The receivers of the transaction.
-        amount (float): The amount of the transaction.
-    """
-
-    receiver = min(receivers, key=lambda x: x.balance)
-
-    # Ensures the sender has a balance > 0
-
-    while sender == receiver:
-
-        receiver = min(receivers, key=lambda x: x.balance)
-        if receiver == sender:
-            receiver = random.choice(receivers)
-
-    if amount is None:
-
-        if sender in miners:
-            #! This is a hack to ensure that miners have a balance > 0
-            # This is only for the purpose of the simulation and should be removed
-
-            # It was found many wallets had a balance near 0 as the miners transactions went through quicker than they could be added to the blockchain
-            # This lead to a weak economy as the miners could not spend their own coins and the other wallets had no coins (or nearly no coins)
-            amount = sender.balance
-
-        else:
-            # This is a hack to ensure that the transaction is not too large
-            # Allows for many transactions to be made without the wallets having to be near 0
-            amount = random.uniform(sender.balance * 0.05, sender.balance * 0.1)
-
-        if amount <= 0:
-            print(sender.balance)
-            raise ValueError("Amount is less than 0. This should not happen.")
-
-        if amount > sender.balance:
-            print(amount)
-            print(sender.balance)
-            raise ValueError("Sender does not have enough balance")
-
-    transaction = Transaction(env, amount=amount, receiver=receiver, sender=sender)
-    return transaction
-
-
 def add_transactions(
     env,
     wallets,
@@ -109,64 +54,30 @@ def add_transactions(
 
         # for every wallet with a balance, makes a random transaction to a random receiver
         # if the wallet has not made num_transactions transactions out
-        made_tx = False
 
-        for i in range(len(wallets)):
+        if blockchain.total_blocks > 1:
 
-            # Checks if the wallet has a balance and has not made num_transactions transactions out
-            # Rounds the balance to 15 decimal places to avoid floating point errors
+            wallet_mat = [[0] * len(wallets) for _ in range(len(wallets))]
 
-            if (
-                round(wallets[i].balance, 15) > 0
-                and wallets[i].tx_out < num_transactions - 20
-            ):
-                transaction = make_random_transaction(
-                    env,
-                    wallets[i],
-                    receivers=wallets,
-                    miners=miners,
-                    interval=interval,
-                    num_transactions=num_transactions,
-                )
+            for i in range(len(wallets)):
+                wallet_mat[i][i] = float("inf")
 
-                blockchain.add_transaction(transaction)
-                tx_count += 1
-                made_tx = True
+            for i in range(len(wallets)):
+                if wallets[i].balance > 0:
+                    min_tx = min(wallet_mat[i])
+                    min_tx_index = wallet_mat[i].index(min_tx)
 
-            # Checks for negative balance
-            if wallets[i].balance < 0:
-                print(f"Wallet {i} has {wallets[i].balance} balance")
-                raise ValueError("Wallet has negative balance")
+                    transaction = Transaction(
+                        env,
+                        amount=wallets[i].balance / len(wallets),
+                        receiver=wallets[min_tx_index],
+                        sender=wallets[i],
+                    )
+                    blockchain.add_transaction(transaction)
 
-            # Checks for duplicate transactions
-            if wallets[i].tx_out > num_transactions:
-                raise ValueError("Wallet has too many transactions")
+                    wallet_mat[i][min_tx_index] += 1
 
-        if (
-            not made_tx
-            and sum(wallet.balance for wallet in wallets) > 0
-            and tx_count < (num_transactions * len(wallets))
-        ):
-            tx_wallets = [
-                wallet for wallet in wallets if wallet.tx_out < num_transactions
-            ]
-            not_tx_wallets = [wallet for wallet in wallets if wallet not in tx_wallets]
-
-            if len(not_tx_wallets) == 0:
-                not_tx_wallets = wallets
-                wallet = max(tx_wallets, key=lambda x: x.balance)
-                transaction = make_random_transaction(
-                    env,
-                    wallet,
-                    receivers=not_tx_wallets,
-                    miners=miners,
-                    interval=interval,
-                    num_transactions=num_transactions,
-                    amount=wallet.balance * 0.5,
-                )
-            blockchain.add_transaction(transaction)
-            tx_count += 1
-            made_tx = True
+                    tx_count += 1
 
         yield env.timeout(interval)
 
@@ -361,7 +272,7 @@ def main(
 
 if __name__ == "__main__":
 
-    run = "btc"
+    run = "memo10"
 
     if run == "btc":
         main(
@@ -371,10 +282,10 @@ if __name__ == "__main__":
             num_wallets=1000,
             hashrate=10000,
             blocktime=600,
-            print_interval=100,
+            print_interval=1,
             num_transactions=1000,
             blocksize=4000,
-            interval=1,
+            interval=0.01,
             reward=50,
             halving=210000,
             years=10,
@@ -399,6 +310,28 @@ if __name__ == "__main__":
             interval=1,
             reward=50,
             halving=210000,
+            years=10,
+            blocks=None,
+            difficulty=None,
+            latency=0,
+            bandwidth=float("inf"),
+            fee=0,
+        )
+
+    if run == "memo10":
+        main(
+            num_miners=5,
+            num_nodes=2,
+            num_neighbors=1,
+            num_wallets=10,
+            hashrate=10000,
+            blocktime=3.27,
+            print_interval=1000000,
+            num_transactions=0,
+            blocksize=32000,
+            interval=1,
+            reward=51.8457072,
+            halving=964400,
             years=10,
             blocks=None,
             difficulty=None,
