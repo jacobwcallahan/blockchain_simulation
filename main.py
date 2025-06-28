@@ -35,21 +35,49 @@ def mine_block(miners, difficulty):
     return winning_miner
 
 
-def make_random_transaction(env, blockchain, sender, receivers, amount=None):
+def make_random_transaction(env, sender, receivers, miners, amount=None):
     """
-    Adds transactions to the block.
+    Creates a transaction between a sender and a receiver.
+    This is based on the receiver with the least balance strictly for the purpose of the simulation.
+
+    If the sender has a minimum balance, the transaction will be made to a random receiver.
+
+    Args:
+        env (simpy.Environment): The environment.
+        blockchain (BlockChain): The blockchain.
+        sender (Wallet): The sender of the transaction.
+        receivers (list): The receivers of the transaction.
+        amount (float): The amount of the transaction.
     """
-    receiver = random.choice(receivers)
+
+    receiver = min(receivers, key=lambda x: x.balance)
 
     # Ensures the sender has a balance > 0
 
     while sender == receiver:
 
-        receiver = random.choice(receivers)
+        receiver = min(receivers, key=lambda x: x.balance)
+        if receiver == sender:
+            receiver = random.choice(receivers)
 
     if amount is None:
 
-        amount = random.uniform(0, sender.balance)
+        if sender in miners:
+            #! This is a hack to ensure that miners have a balance > 0
+            # This is only for the purpose of the simulation and should be removed
+
+            # It was found many wallets had a balance near 0 as the miners transactions went through quicker than they could be added to the blockchain
+            # This lead to a weak economy as the miners could not spend their own coins and the other wallets had no coins (or nearly no coins)
+            amount = sender.balance
+
+        else:
+            # This is a hack to ensure that the transaction is not too large
+            # Allows for many transactions to be made without the wallets having to be near 0
+            amount = random.uniform(sender.balance * 0.01, sender.balance * 0.03)
+
+        if amount <= 0:
+            print(sender.balance)
+            raise ValueError("Amount is less than 0. This should not happen.")
 
         if amount > sender.balance:
             print(amount)
@@ -60,7 +88,15 @@ def make_random_transaction(env, blockchain, sender, receivers, amount=None):
     return transaction
 
 
-def add_transactions(env, wallets, num_transactions, interval, blockchain, end=False):
+def add_transactions(
+    env,
+    wallets,
+    num_transactions,
+    interval,
+    blockchain,
+    miners,
+    end=False,
+):
     """
     Adds transactions to the block.
     """
@@ -73,10 +109,18 @@ def add_transactions(env, wallets, num_transactions, interval, blockchain, end=F
         # if the wallet has not made num_transactions transactions out
 
         for i in range(len(wallets)):
-            if wallets[i].balance > 0 and len(wallets[i].tx_out) < num_transactions:
+
+            # Checks if the wallet has a balance and has not made num_transactions transactions out
+            # Rounds the balance to 15 decimal places to avoid floating point errors
+
+            if (
+                round(wallets[i].balance, 15) > 0
+                and len(wallets[i].tx_out) < num_transactions
+            ):
                 transaction = make_random_transaction(
-                    env, blockchain, wallets[i], receivers=wallets
+                    env, wallets[i], receivers=wallets, miners=miners
                 )
+
                 blockchain.add_transaction(transaction)
                 tx_count += 1
 
@@ -108,17 +152,37 @@ def begin_mining(
     num_transactions,
     nodes,
     years,
+    diff_interval=2016,
     difficulty=None,
     blocks=None,
 ):
+    """This is the main mining process. It begins mining blocks  in a loop and updates the blockchain.
+
+    Args:
+        env (simpy.Environment): The environment.
+        miners (list): The miners.
+        blockchain (BlockChain): The blockchain.
+        blocktime (float): The blocktime.
+        hashrate (bool): The hashrate.
+        print_interval (int): The print interval.
+        num_transactions (int): The number of transactions.
+        nodes (list): The nodes.
+        years (int): The number of years.
+        diff_interval (int, optional): The difficulty interval. Defaults to 2016.
+        difficulty (int, optional): The difficulty. Defaults to None.
+        blocks (int, optional): The number of blocks. Defaults to None.
+
+    Raises:
+        ValueError: If the difficulty is not provided and the blocktime, hashrate, and number of miners are not provided.
+        ValueError: If the blocks, years, or num_transactions are not provided.
+
+    """
 
     if difficulty is None:
         difficulty = blocktime * (hashrate * len(miners))
 
     if blocks is None and years is None and num_transactions == 0:
         raise ValueError("Either blocks or years or num_transactions must be provided")
-
-    diff_interval = 2016
 
     stats = Stats(
         env=env,
@@ -143,7 +207,7 @@ def begin_mining(
         # Alert the node
         # This sends the block to the node which is added to the ledger
         # As well this node communicates with its neighbors and updates them.
-        winning_miner.win_block(blockchain.get_current_block())
+        yield env.process(winning_miner.win_block(blockchain.get_current_block()))
 
         blockchain.finalize_block(winning_miner)
 
@@ -174,13 +238,16 @@ def begin_mining(
             else:
                 print(stats.get_stats_str())
 
-    print(f"Avg Block Time: {sum(stats.block_times) / len(stats.block_times)}")
+    if nodes[0].latency > 0 or nodes[0].bandwidth < float("inf"):
+        print(
+            f"Avg Broadcast Time: {sum(sum(node.broadcast_times) for node in nodes) / len(nodes) / len(blockchain.blocks)}"
+        )
+        print(
+            f"Total Broadcast Time: {sum(sum(node.broadcast_times) for node in nodes)}"
+        )
 
-    print(
-        f"Avg Broadcast Time: {sum(sum(node.broadcast_times) for node in nodes) / len(nodes) / len(blockchain.blocks)}"
-    )
-    print(f"Total Broadcast Time: {sum(sum(node.broadcast_times) for node in nodes)}")
-    print(f"Total Fees: {blockchain.total_fees}")
+    if blockchain.fee > 0:
+        print(f"Total Fees: {blockchain.total_fees}")
 
 
 def main(
@@ -206,6 +273,14 @@ def main(
     if num_neighbors >= num_nodes:
         raise ValueError("Neighbors cannot be greater than or equal to nodes")
 
+    if fee > 1:
+        raise ValueError(
+            "Fee must be between 0 and 1. Fee is a percentage of the transaction amount."
+        )
+
+    if fee < 0:
+        raise ValueError("Fee must be greater than 0")
+
     env = simpy.Environment()
     blockchain = BlockChain(env, blocksize, reward, halving, fee)
     nodes = init_nodes(env, num_nodes, num_neighbors, latency, bandwidth)
@@ -219,6 +294,7 @@ def main(
             num_transactions,
             interval,
             blockchain,
+            miners=miners,
             end=(num_transactions != 0 and blocks is None),
         )
     )
@@ -251,15 +327,15 @@ if __name__ == "__main__":
         hashrate=10000,
         blocktime=3.27,
         print_interval=100,
-        num_transactions=100,
-        blocksize=8000,
-        interval=5,
-        reward=51.8457072,
+        num_transactions=1000,
+        blocksize=100,
+        interval=0.01,
+        reward=50,
         halving=9644000,
         years=1,
         latency=0,
         bandwidth=(1024 * 1024),
-        fee=0.001,
+        fee=0.01,
         difficulty=None,
-        blocks=100000,
+        blocks=None,
     )

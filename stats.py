@@ -21,13 +21,6 @@ class Stats:
         blocks=None,
     ):
 
-        print(f"Blocktime: {blocktime}", end="\n")
-        print(f"Hashrate: {hashrate}", end="\n")
-        print(f"Years: {years}", end="\n")
-        print(f"Miners: {len(miners)}", end="\n")
-        print(f"Nodes: {len(nodes)}", end="\n")
-        print(f"Blocks: {blocks}", end="\n")
-
         self.print_interval = print_interval
         self.diff_interval = diff_interval
 
@@ -44,10 +37,9 @@ class Stats:
         else:
             self.total_blocks = blocks
 
-        print(f"Total Blocks: {self.total_blocks}", end="\n")
-
         self.env = env
         self.last_print_time = 0
+        self.old_fees = 0
 
         self.print_dict = {
             "block_num": 0,
@@ -88,9 +80,11 @@ class Stats:
         ]
 
         if self.print_dict["network_time"] > 0:
-            print_list.append(f"ANT:{round(self.print_dict['network_time'], 2)}s")
+            print_list.append(
+                f"Network Time:{round(self.print_dict['network_time'], 2)}s"
+            )
 
-        if self.print_dict["fees"] > 0:
+        if self.print_dict["fees"] > 0 or self.old_fees > 0:
             print_list.append(f"AFB:{round(self.print_dict['fees'], 2)}")
 
         return " ".join(print_list)
@@ -214,7 +208,8 @@ class Stats:
         )
 
     def set_fees(self):
-        new_fees = self.blockchain.total_fees - self.print_dict["fees"]
+        new_fees = self.blockchain.total_fees - self.old_fees
+        self.old_fees = self.blockchain.total_fees
         self.print_dict["fees"] = new_fees / (
             len(self.blockchain.blocks) - self.print_dict["block_num"]
         )

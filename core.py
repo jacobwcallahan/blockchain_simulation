@@ -42,7 +42,7 @@ class Node:
         Mines a block and adds it to the blockchain.
         """
         self.ledger.append(block)
-        self.env.process(self.broadcast_update(block))
+        yield self.env.process(self.broadcast_update(block))
 
     def broadcast_update(self, block, latency=0):
         """
@@ -154,7 +154,7 @@ class Miner:
         return self.mine_time
 
     def win_block(self, block):
-        self.node.mine_block(block)
+        yield self.env.process(self.node.mine_block(block))
 
     def __str__(self):
         return self.id
@@ -179,6 +179,7 @@ class Transaction:
             raise ValueError("Amount cannot be None")
 
         if amount <= 0:
+            print(amount)
             raise ValueError("Amount must be greater than 0")
 
         if sender == receiver:
@@ -273,9 +274,9 @@ class Block:
         transaction.proceess_time = self.env.now
         self.transactions.append(transaction)
         self.transaction_count += 1
-        self.size += transaction.size  # TODO: Add the size of the transaction
+        self.size += transaction.size
 
-        if self.size + transaction.size >= self.blocksize:
+        if len(self.transactions) >= self.blocksize + 1:
             self.full = True
 
     def __repr__(self):
@@ -308,9 +309,11 @@ class BlockChain:
         coins: The total number of coins in the blockchain.
         reward: The reward for mining a block.
         halving: The number of blocks until the reward is halved.
-        fee: The fee for each transaction.
+        fee: The fee for each transaction as a percentage of the transaction amount.
         tx_pool: The queue of transactions to be added to the blockchain.
         current_block: The current block being mined.
+        stop_process: Whether the process should stop.
+        total_fees: The total fees in the blockchain.
     """
 
     def __init__(self, env, blocksize, reward, halving, fee=0):
@@ -355,7 +358,14 @@ class BlockChain:
                 # If the transaction is a transaction and not a reward, add the fee to the block fees
                 if transaction.type == "Transaction":
                     fee = transaction.amount * self.fee
+
                     transaction.amount -= fee
+
+                    if transaction.amount < 0:
+                        raise ValueError(
+                            "Transaction amount is less than 0. This should not happen."
+                        )
+
                     self.current_block.fees += fee
 
                     self.total_fees += fee
@@ -386,7 +396,7 @@ class BlockChain:
         )
 
         block.transaction_count = 0
-        block.size = 0
+        block.size = 1024
 
         if winning_miner:
             reward_amount = self.create_reward()
