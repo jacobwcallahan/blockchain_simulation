@@ -35,7 +35,9 @@ def mine_block(miners, difficulty):
     return winning_miner
 
 
-def make_random_transaction(env, sender, receivers, miners, amount=None):
+def make_random_transaction(
+    env, sender, receivers, miners, interval, num_transactions, amount=None
+):
     """
     Creates a transaction between a sender and a receiver.
     This is based on the receiver with the least balance strictly for the purpose of the simulation.
@@ -73,7 +75,7 @@ def make_random_transaction(env, sender, receivers, miners, amount=None):
         else:
             # This is a hack to ensure that the transaction is not too large
             # Allows for many transactions to be made without the wallets having to be near 0
-            amount = random.uniform(sender.balance * 0.01, sender.balance * 0.03)
+            amount = random.uniform(sender.balance * 0.05, sender.balance * 0.1)
 
         if amount <= 0:
             print(sender.balance)
@@ -118,7 +120,12 @@ def add_transactions(
                 and len(wallets[i].tx_out) < num_transactions
             ):
                 transaction = make_random_transaction(
-                    env, wallets[i], receivers=wallets, miners=miners
+                    env,
+                    wallets[i],
+                    receivers=wallets,
+                    miners=miners,
+                    interval=interval,
+                    num_transactions=num_transactions,
                 )
 
                 blockchain.add_transaction(transaction)
@@ -198,20 +205,29 @@ def begin_mining(
         difficulty=difficulty,
     )
 
+    # Main mining Loop
     while True:
 
         winning_miner = mine_block(miners, stats.difficulty)
 
         yield env.timeout(winning_miner.mine_time)
 
+        blockchain.finalize_block()
+
         # Alert the node
         # This sends the block to the node which is added to the ledger
         # As well this node communicates with its neighbors and updates them.
         yield env.process(winning_miner.win_block(blockchain.get_current_block()))
 
-        blockchain.finalize_block(winning_miner)
-
         stats.add_block_time(blockchain.get_current_block().time_since_last_block)
+
+        blockchain.create_block(env, winning_miner)
+
+        # This adds the total time from the latency and bandwidth of the nodes
+        stats.add_total_time(
+            sum(node.broadcast_times[-1] for node in nodes)
+            + blockchain.get_current_block().time_since_last_block
+        )
 
         # Adjusts difficulty every 2016 blocks
         if len(stats.block_times) % diff_interval == 0:
@@ -240,7 +256,7 @@ def begin_mining(
 
     if nodes[0].latency > 0 or nodes[0].bandwidth < float("inf"):
         print(
-            f"Avg Broadcast Time: {sum(sum(node.broadcast_times) for node in nodes) / len(nodes) / len(blockchain.blocks)}"
+            f"Avg Broadcast Time per block: {sum(sum(node.broadcast_times) for node in nodes) / len(nodes) / len(blockchain.blocks)}"
         )
         print(
             f"Total Broadcast Time: {sum(sum(node.broadcast_times) for node in nodes)}"
@@ -323,19 +339,19 @@ if __name__ == "__main__":
         num_miners=2,
         num_nodes=2,
         num_neighbors=1,
-        num_wallets=10,
+        num_wallets=1000,
         hashrate=10000,
-        blocktime=3.27,
+        blocktime=100.0,
         print_interval=100,
-        num_transactions=1000,
-        blocksize=100,
-        interval=0.01,
-        reward=50,
-        halving=9644000,
+        num_transactions=250,
+        blocksize=1000,
+        interval=10.0,
+        reward=1000.0,
+        halving=10000,
         years=1,
-        latency=0,
-        bandwidth=(1024 * 1024),
-        fee=0.01,
-        difficulty=None,
         blocks=None,
+        difficulty=None,
+        latency=0,
+        bandwidth=float("inf"),
+        fee=0,
     )

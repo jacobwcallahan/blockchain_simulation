@@ -25,10 +25,11 @@ class Stats:
         self.diff_interval = diff_interval
 
         self.block_times = []
+        self.total_times = []
         self.difficulty = difficulty
 
         self.nodes = nodes
-        self.diff_interval = 2016
+        self.diff_interval = diff_interval
         self.blockchain = blockchain
         self.blocktime = blocktime
 
@@ -92,12 +93,16 @@ class Stats:
     def add_block_time(self, block_time):
         self.block_times.append(block_time)
 
+    def add_total_time(self, total_time):
+        self.total_times.append(total_time)
+
     def update_difficulty(self):
+
         self.difficulty = math.ceil(
             self.difficulty
             * (
                 self.blocktime
-                / (sum(self.block_times[-self.diff_interval :]) / self.diff_interval)
+                / (sum(self.total_times[-self.diff_interval :]) / self.diff_interval)
             )
         )
 
@@ -144,7 +149,7 @@ class Stats:
 
     def set_abt(self):
         self.print_dict["abt"] = (
-            sum(self.block_times[-self.print_interval :]) / self.print_interval
+            sum(self.total_times[-self.print_interval :]) / self.print_interval
         )
 
     def set_tps(self, time_since_last_print):

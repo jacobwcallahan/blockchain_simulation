@@ -93,6 +93,8 @@ class Node:
 
         self.ledger.append(block)
 
+        self.total_io_requests += 1
+
         yield self.env.timeout(latency + block.size / self.bandwidth)
         if len(self.broadcast_times) < len(self.ledger):
             self.broadcast_times.append(0)
@@ -253,7 +255,6 @@ class Wallet:
 class Block:
     def __init__(self, env, id, blocksize):
         self.header = None
-        self.transactions = None
         self.block_id = id
         self.timestamp = env.now
         self.env = env
@@ -276,6 +277,7 @@ class Block:
         self.transaction_count += 1
         self.size += transaction.size
 
+        # +1 because the block size is the number of transactions + 1 reward transaction
         if len(self.transactions) >= self.blocksize + 1:
             self.full = True
 
@@ -330,7 +332,7 @@ class BlockChain:
         self.tx_pool = []
         self.stop_process = False
 
-        self.current_block = self.create_block(env)
+        self.create_block(env)
 
     def create_reward(self):
         if self.halving == 0:
@@ -341,7 +343,7 @@ class BlockChain:
         ) + self.current_block.fees
         return reward
 
-    def finalize_block(self, winning_miner):
+    def finalize_block(self):
         """Finalizes the current block and adds it to the blockchain. Also adds the reward to the miner's wallet.
         Also adds the transactions to the block from the transaction queue until the block is full.
 
@@ -355,6 +357,7 @@ class BlockChain:
         if len(self.tx_pool) != 0:
             while not block.full:
                 transaction = self.tx_pool.pop(0)
+
                 # If the transaction is a transaction and not a reward, add the fee to the block fees
                 if transaction.type == "Transaction":
                     fee = transaction.amount * self.fee
@@ -379,24 +382,19 @@ class BlockChain:
 
         self.blocks.append(self.current_block)
 
-        self.total_transactions += self.current_block.transaction_count
-
-        self.current_block = self.create_block(self.env, winning_miner)
+        self.total_transactions += block.transaction_count
 
     def create_block(self, env, winning_miner=None):
         """
         Creates and returns new block with id equal to the length of the blockchain.
         """
-        block = Block(env, id=len(self.blocks), blocksize=self.blocksize * 1024)
+        block = Block(env, id=len(self.blocks), blocksize=self.blocksize)
         block.transactions = []
         block.timestamp = env.now
 
         block.time_since_last_block = (
             env.now - self.get_last_block().timestamp if self.blocks else 0
         )
-
-        block.transaction_count = 0
-        block.size = 1024
 
         if winning_miner:
             reward_amount = self.create_reward()
@@ -408,7 +406,7 @@ class BlockChain:
             self.coins += reward_amount
             self.tx_pool.insert(0, reward_transaction)
 
-        return block
+        self.current_block = block
 
     def add_transaction(self, transaction):
         self.tx_pool.append(transaction)
