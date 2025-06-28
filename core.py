@@ -1,11 +1,14 @@
 import random
 import time
 import math
+import gc
 
 
 class Node:
     """
-    A node in the network.
+    A node in the network. This is a single node that can communicate with other nodes.
+
+    It stores the neighbors of the node, the ledger of the node, the total number of IO requests, the bandwidth, the broadcast times, the latency, and the id of the node.
 
     Attributes:
         env: The environment.
@@ -31,49 +34,59 @@ class Node:
         self.max_neighbors = num_neighbors
         self.id = id
         self.ledger = []
+        self.ledger_size = 0
         self.total_io_requests = 0
         self.network_usage = 0
         self.bandwidth = bandwidth
         self.broadcast_times = []
         self.latency = latency
+        self.last_block = None
 
     def mine_block(self, block):
         """
-        Mines a block and adds it to the blockchain.
+        Mines a block and adds it to the blockchain. As well as broadcasts the block to all neighbors.
         """
-        self.ledger.append(block)
+        self.ledger.append(block.block_id)
+        self.ledger_size += 1
+        self.last_block = block
         yield self.env.process(self.broadcast_update(block))
+        self.resize_ledger()
 
     def broadcast_update(self, block, latency=0):
         """
         Broadcasts the block to all neighbors.
+
+        Args:
+            block (Block): The block to broadcast.
+            latency (float): The latency of the block. Optional, defaults to 0.
         """
 
+        # If the bandwidth is not infinite, the broadcast time is the size of the block divided by the bandwidth
         if self.bandwidth != float("inf"):
             broadcast_time = block.size / self.bandwidth
         else:
             broadcast_time = 0
 
-        if len(self.broadcast_times) < len(self.ledger):
+        if len(self.broadcast_times) < self.ledger_size:
             self.broadcast_times.append(0)
 
         for i in range(len(self.neighbors)):
             neighbor = self.neighbors[i]
 
             # Checks if neighbor already has the block
-            if neighbor.get_last_block() is not None:
-                if neighbor.get_last_block() == block:
+            if neighbor.last_block is not None:
+                if neighbor.last_block == block:
                     continue
 
             self.total_io_requests += 1
             self.network_usage += block.size
             self.broadcast_times[-1] += latency + broadcast_time
 
+            # If the latency is not 0, the block is received with the latency of the node + the broadcast time
             if latency != 0:
                 yield self.env.process(
                     neighbor.receive_block(block, self.latency + broadcast_time)
                 )
-
             else:
                 yield self.env.process(
                     neighbor.receive_block(block, latency=self.latency)
@@ -91,25 +104,29 @@ class Node:
             latency (float): The latency of the block. Optional, defaults to 0.
         """
 
-        self.ledger.append(block)
+        self.ledger.append(block.block_id)
+        self.ledger_size += 1
 
         self.total_io_requests += 1
 
         yield self.env.timeout(latency + block.size / self.bandwidth)
-        if len(self.broadcast_times) < len(self.ledger):
+        if len(self.broadcast_times) < self.ledger_size:
             self.broadcast_times.append(0)
 
         self.broadcast_times[-1] += latency + block.size / self.bandwidth
 
-        yield self.env.process(
-            self.broadcast_update(self.ledger[-1], latency=self.latency)
-        )
+        yield self.env.process(self.broadcast_update(block, latency=self.latency))
 
-    def get_last_block(self):
-        if len(self.ledger) == 0:
-            return None
+        self.last_block = block
 
-        return self.ledger[-1]
+        self.resize_ledger()
+
+    def resize_ledger(self):
+        if len(self.ledger) > 1000000:
+            old_ledger = self.ledger
+            self.ledger = list(self.ledger[-500000:])
+            del old_ledger
+            gc.collect()
 
     def __eq__(self, other):
         if self.id == other.id:
@@ -119,6 +136,20 @@ class Node:
 
 
 class Miner:
+    """
+    A miner. This is a single miner that can mine blocks.
+
+    It stores the hashrate of the miner and the wallet of the miner.
+
+    Attributes:
+        id: The id of the miner.
+        env: The environment.
+        hashrate: The hashrate of the miner.
+        mine_time: The time it takes to mine a block.
+        node: The node that the miner is on.
+        wallet: The wallet of the miner.
+    """
+
     def __init__(
         self,
         env,
@@ -230,19 +261,31 @@ class Transaction:
 
 
 class Wallet:
+    """
+    A wallet. This is a single wallet that can send and receive transactions.
+
+    It stores the transactions that the wallet has sent and received.
+
+    As well it stores the balance of the wallet.
+
+    Attributes:
+        id: The id of the wallet.
+        tx_out: The transactions that the wallet has sent.
+    """
+
     def __init__(self, id):
         self.id = id
-        self.tx_out = []
-        self.tx_in = []
+        self.tx_out = 0
+        self.tx_in = 0
         self.balance = 0
 
     def add_transaction(self, transaction):
 
         if transaction.receiver.id == self.id:
-            self.tx_in.append(transaction)
+            self.tx_in += 1
             self.balance += transaction.amount
         else:
-            self.tx_out.append(transaction)
+            self.tx_out += 1
             self.balance -= transaction.amount
 
     def __str__(self):
@@ -253,6 +296,24 @@ class Wallet:
 
 
 class Block:
+    """
+    A block in the blockchain. This is the unit of work that is mined by a miner.
+    It stores the transactions that have been added to the blockchain.
+
+    The block is created by the BlockChain class and is added to the blockchain by the BlockChain class.
+
+    Attributes:
+        header: The header of the block.
+        block_id: The id of the block.
+        timestamp: The timestamp of the block.
+        env: The environment.
+        time_since_last_block: The time since the last block.
+        transaction_count: The number of transactions in the block.
+        size: The size of the block.
+        blocksize: The size of the blocks in the blockchain.
+        transactions: The transactions in the block.
+    """
+
     def __init__(self, env, id, blocksize):
         self.header = None
         self.block_id = id
@@ -269,6 +330,13 @@ class Block:
         self.fees = 0
 
     def add_transaction(self, transaction):
+        """
+        Adds a transaction to the block. Checks if the block is full and raises an error if it is.
+
+        Args:
+            transaction (Transaction): The transaction to add.
+        """
+
         if self.full:
             raise ValueError("Block is full - transaction not added")
 
@@ -321,6 +389,7 @@ class BlockChain:
     def __init__(self, env, blocksize, reward, halving, fee=0):
         self.env = env
         self.blocks = []
+        self.total_blocks = 0
         self.total_transactions = 0
         self.blocksize = blocksize
         self.coins = 0
@@ -335,11 +404,17 @@ class BlockChain:
         self.create_block(env)
 
     def create_reward(self):
+        """
+        Creates the reward for the block. Based on the halving and the fees.
+
+        Returns:
+            float: The reward for the block.
+        """
         if self.halving == 0:
             return self.reward
 
         reward = (
-            self.reward * (0.5 ** (len(self.blocks) // self.halving))
+            self.reward * (0.5 ** (self.total_blocks // self.halving))
         ) + self.current_block.fees
         return reward
 
@@ -386,9 +461,16 @@ class BlockChain:
 
     def create_block(self, env, winning_miner=None):
         """
-        Creates and returns new block with id equal to the length of the blockchain.
+        Creates a new block with id equal to the length of the blockchain.
+        Also adds the reward transaction to the transaction pool.
+
+        Miner is only not provided if the block is the first block in the blockchain.
+
+        Args:
+            env (simpy.Environment): The environment.
+            winning_miner (Miner, optional): The miner that won the block. Defaults to None.
         """
-        block = Block(env, id=len(self.blocks), blocksize=self.blocksize)
+        block = Block(env, id=self.total_blocks, blocksize=self.blocksize)
         block.transactions = []
         block.timestamp = env.now
 
@@ -407,6 +489,20 @@ class BlockChain:
             self.tx_pool.insert(0, reward_transaction)
 
         self.current_block = block
+        self.total_blocks += 1
+
+        # Keeps the blockchain to 500,000 blocks
+        # This prevents memory issues with the blockchain
+        if len(self.blocks) > 1000000:
+
+            # Clear internal data of old blocks
+            for old_block in self.blocks[:-500000]:
+                old_block.__dict__.clear()
+
+            # Now slice and reallocate the list
+            self.blocks = list(self.blocks[-500000:])
+
+            gc.collect()
 
     def add_transaction(self, transaction):
         self.tx_pool.append(transaction)
@@ -416,12 +512,6 @@ class BlockChain:
 
     def get_last_block(self):
         return self.blocks[-1]
-
-    def __eq__(self, other):
-        for i in range(len(self.blocks)):
-            if self.blocks[i] != other.blocks[i]:
-                return False
-        return True
 
     def __repr__(self):
         block_ids = [block.block_id for block in self.blocks]

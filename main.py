@@ -117,7 +117,7 @@ def add_transactions(
 
             if (
                 round(wallets[i].balance, 15) > 0
-                and len(wallets[i].tx_out) < num_transactions
+                and wallets[i].tx_out < num_transactions
             ):
                 transaction = make_random_transaction(
                     env,
@@ -137,10 +137,7 @@ def add_transactions(
                 raise ValueError("Wallet has negative balance")
 
             # Checks for duplicate transactions
-            if len(wallets[i].tx_out) > num_transactions:
-                if len(wallets[i].tx_out) != len(set(wallets[i].tx_out)):
-                    print(f"Wallet {i} has duplicate transactions")
-                    raise ValueError("Wallet has duplicate transactions and too many")
+            if wallets[i].tx_out > num_transactions:
                 raise ValueError("Wallet has too many transactions")
 
         yield env.timeout(interval)
@@ -233,12 +230,12 @@ def begin_mining(
         if len(stats.block_times) % diff_interval == 0:
             stats.update_difficulty()
 
-        if len(blockchain.blocks) == stats.total_blocks:
+        if blockchain.total_blocks == stats.total_blocks:
             blockchain.stop_process = True
 
         # Prints the blockchain every print_interval blocks and last block
 
-        if len(blockchain.blocks) % print_interval == 0 or (
+        if blockchain.total_blocks % print_interval == 0 or (
             blockchain.stop_process and len(blockchain.tx_pool) <= 1
         ):
 
@@ -256,7 +253,7 @@ def begin_mining(
 
     if nodes[0].latency > 0 or nodes[0].bandwidth < float("inf"):
         print(
-            f"Avg Broadcast Time per block: {sum(sum(node.broadcast_times) for node in nodes) / len(nodes) / len(blockchain.blocks)}"
+            f"Avg Broadcast Time per block: {sum(sum(node.broadcast_times) for node in nodes) / len(nodes) / blockchain.total_blocks}"
         )
         print(
             f"Total Broadcast Time: {sum(sum(node.broadcast_times) for node in nodes)}"
@@ -336,19 +333,19 @@ def main(
 
 if __name__ == "__main__":
     main(
-        num_miners=2,
+        num_miners=5,
         num_nodes=2,
         num_neighbors=1,
-        num_wallets=1000,
+        num_wallets=10,
         hashrate=10000,
-        blocktime=100.0,
-        print_interval=100,
-        num_transactions=250,
-        blocksize=1000,
+        blocktime=3.27,
+        print_interval=1000000,
+        num_transactions=0,
+        blocksize=32000,
         interval=10.0,
-        reward=1000.0,
-        halving=10000,
-        years=1,
+        reward=51.8457072,
+        halving=964400,
+        years=10,
         blocks=None,
         difficulty=None,
         latency=0,

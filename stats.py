@@ -180,7 +180,7 @@ class Stats:
             )
 
     def set_block_num(self):
-        self.print_dict["block_num"] = len(self.blockchain.blocks)
+        self.print_dict["block_num"] = self.blockchain.total_blocks
 
     def set_block_percent(self):
         self.print_dict["block_percent"] = (
@@ -216,7 +216,7 @@ class Stats:
         new_fees = self.blockchain.total_fees - self.old_fees
         self.old_fees = self.blockchain.total_fees
         self.print_dict["fees"] = new_fees / (
-            len(self.blockchain.blocks) - self.print_dict["block_num"]
+            self.blockchain.total_blocks - self.print_dict["block_num"]
         )
 
     def set_network_time(self):
