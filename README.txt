@@ -25,10 +25,10 @@ FILE STRUCTURE
 ====================================
 
 sim-blockchain.py - Entry-point script using argparse to parse CLI flags  
-main.py - Core simulation logic for mining, transactions, wallets, and blockchain processing  
-init_objs.py - Utility for initializing nodes, miners, and wallets  
+main.py - Main simulation logic for the two main processes, mining process and transaction process
+init_objs.py - Fucntions for initializing nodes, miners, and wallets  
 stats.py - Tracking and printing of blockchain statistics over time  
-core/ - (Not included here but assumed to contain class definitions for BlockChain, Block, Node, Miner, Wallet, Transaction, etc.)
+core - Includes the BlockChain, Node, Wallet, Block, Miner classes 
 
 ====================================
 USAGE
@@ -40,14 +40,14 @@ Key options:
 - `--nodes` : Number of nodes in the network
 - `--neighbors` : Max neighbors per node (for propagation)
 - `--wallets` : Number of wallet agents
-- `--transactions` : Transactions per wallet
+- `--transactions` : Transactions per wallet (This will stop the process when these are complete if given)
 - `--interval` : Time between wallet transactions (seconds)
 - `--blocktime` : Target block time (seconds)
 - `--blocksize` : Max transactions per block
 - `--reward` : Block reward in coins
 - `--halving` : Blocks per reward halving
 - `--years` : Run simulation for this many years
-- `--blocks` : OR stop after this many blocks
+- `--blocks` : OR stop after this many blocks (This stops the simulation at given amount of blocks, regardlenss of 'transactions')
 - `--difficulty` : Starting difficulty (optional)
 - `--latency` : Simulated network latency
 - `--bandwidth` : Simulated network bandwidth
@@ -59,20 +59,19 @@ Key options:
 EXAMPLE COMMANDS
 ====================================
 
-Run a basic 1-year simulation with transaction activity:
+Run a basic 1-year simulation without transaction activity and no blocks set
 
 To run the simulation:
 
-python3 sim-blockchain.py --miners 5 --hashrate 10000 --nodes 2 --neighbors 1 --blocktime 3.27 --blocksize 32000 --wallets 10 --transactions 0 --interval 10.0 --print 1000000 --reward 51.8457072 --halving 964400 --years 10 --bandwidth 1024 --latency .1 --fee .01
+python3 sim-blockchain.py --miners 5 --hashrate 10000 --nodes 2 --neighbors 1 --blocktime 3.27 --blocksize 32000 --wallets 10 --transactions 0 --interval 10.0 --print 1000000 --reward 51.8457072 --halving 964400 --years 1 --bandwidth 1024 --latency .1 --fee .01
 
-This simulates 10 years
 
 ====================================
 TROUBLESHOOTING
 ====================================
 
 - Make sure neighbor count is less than number of nodes.
-- Floating-point rounding may cause slight inconsistencies—transaction logic defends against this.
+- Floating-point rounding may cause slight inconsistencies. Transaction logic defends against this but it may still appear
 - For large workloads (e.g., 1000 wallets with 1000 tx), simulation may take minutes.
 
 ====================================

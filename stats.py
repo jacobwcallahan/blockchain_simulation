@@ -170,8 +170,8 @@ class Stats:
         else:
             self.print_dict["inflation"] = (
                 (
-                    (self.blockchain.coins / self.print_dict["coins"])
-                    / time_since_last_print
+                    (self.print_dict["coins"] / self.blockchain.coins)
+                    / (self.blocktime)
                 )
                 * 60
                 * 60
