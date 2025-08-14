@@ -58,6 +58,7 @@ class Stats:
             "nmb": 0,
             "fees": 0,
             "network_time": 0,
+            "reward": 0,
         }
 
     def get_stats_str(self):
@@ -169,10 +170,7 @@ class Stats:
             self.print_dict["inflation"] = 0
         else:
             self.print_dict["inflation"] = (
-                (
-                    (self.print_dict["coins"] / self.blockchain.coins)
-                    / (self.blocktime)
-                )
+                (self.blockchain.reward * self.print_interval) / time_since_last_print
                 * 60
                 * 60
                 * 24
