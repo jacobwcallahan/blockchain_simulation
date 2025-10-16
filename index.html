@@ -6,7 +6,7 @@
   <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
   <style>
     body { font-family: sans-serif; padding: 20px; background: #101010; color: #eee; }
-    button { padding: 8px 14px; border: none; background: #3b82f6; color: white; border-radius: 6px; }
+    button { padding: 8px 14px; border: none; background: #3b82f6; color: white; border-radius: 6px; cursor: pointer; }
     pre { background: #181818; padding: 10px; border-radius: 8px; margin-top: 15px; }
   </style>
 </head>
@@ -16,16 +16,34 @@
   <pre id="output"></pre>
 
   <script type="module">
-    async function runSim() {
-      const output = document.getElementById("output");
-      output.textContent = "Loading Pyodide...";
-      const pyodide = await loadPyodide();
-      output.textContent = "Running simulation...\n";
+    let pyodide;  // global reference
 
-      const pythonCode = await fetch("main.py").then(r => r.text());
-      const result = await pyodide.runPythonAsync(pythonCode);
-      output.textContent += result ?? "\nSimulation complete!";
+    async function initPyodide() {
+      const out = document.getElementById("output");
+      out.textContent = "Loading Pyodide (5–10 s first time)...";
+      pyodide = await loadPyodide();
+      out.textContent = "Pyodide ready! Click Run Simulation.\n";
     }
+
+    async function runSim() {
+      const out = document.getElementById("output");
+      if (!pyodide) {
+        out.textContent += "\nPyodide not ready yet...";
+        return;
+      }
+      out.textContent = "Running simulation...\n";
+      try {
+        const pythonCode = await fetch("main.py").then(r => r.text());
+        const result = await pyodide.runPythonAsync(pythonCode);
+        out.textContent += result ?? "\nSimulation complete!";
+      } catch (err) {
+        out.textContent += "\n❌ Error: " + err;
+      }
+    }
+
+    // Load Pyodide once when the page opens
+    initPyodide();
+    window.runSim = runSim;
   </script>
 </body>
 </html>
