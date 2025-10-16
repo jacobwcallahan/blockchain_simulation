@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Blockchain Simulation</title>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #101010; color: #eee; }
+    button { padding: 8px 14px; border: none; background: #3b82f6; color: white; border-radius: 6px; }
+    pre { background: #181818; padding: 10px; border-radius: 8px; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <h1>Blockchain Simulation (Runs in Your Browser)</h1>
+  <button onclick="runSim()">Run Simulation</button>
+  <pre id="output"></pre>
+
+  <script type="module">
+    async function runSim() {
+      const output = document.getElementById("output");
+      output.textContent = "Loading Pyodide...";
+      const pyodide = await loadPyodide();
+      output.textContent = "Running simulation...\n";
+
+      const pythonCode = await fetch("main.py").then(r => r.text());
+      const result = await pyodide.runPythonAsync(pythonCode);
+      output.textContent += result ?? "\nSimulation complete!";
+    }
+  </script>
+</body>
+</html>
