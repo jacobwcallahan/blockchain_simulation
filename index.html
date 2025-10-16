@@ -16,34 +16,68 @@
   <pre id="output"></pre>
 
   <script type="module">
-    let pyodide;  // global reference
-
+    let pyodide;
+  
     async function initPyodide() {
       const out = document.getElementById("output");
       out.textContent = "Loading Pyodide (5–10 s first time)...";
       pyodide = await loadPyodide();
+      await pyodide.loadPackage("micropip");
+      const micropip = pyodide.pyimport("micropip");
+      await micropip.install("simpy");
       out.textContent = "Pyodide ready! Click Run Simulation.\n";
     }
-
+  
     async function runSim() {
       const out = document.getElementById("output");
       if (!pyodide) {
         out.textContent += "\nPyodide not ready yet...";
         return;
       }
-      out.textContent = "Running simulation...\n";
+      out.textContent = "Preparing Python files...\n";
+  
+      // Helper to load local files into Pyodide's in-memory FS
+      async function mountFile(path, url) {
+        const data = await fetch(url).then(r => r.text());
+        pyodide.FS.writeFile(path, data);
+      }
+  
       try {
-        const pythonCode = await fetch("main.py").then(r => r.text());
-        const result = await pyodide.runPythonAsync(pythonCode);
-        out.textContent += result ?? "\nSimulation complete!";
+        // Create directories
+        pyodide.FS.mkdir("/objs");
+        pyodide.FS.mkdir("/utils");
+  
+        // Copy your local Python source files into the virtual FS
+        await mountFile("/objs/core.py", "objs/core.py");
+        await mountFile("/objs/stats.py", "objs/stats.py");
+        await mountFile("/utils/init_objs.py", "utils/init_objs.py");
+        await mountFile("/main.py", "main.py");
+  
+        out.textContent += "Files loaded! Running simulation...\n";
+  
+        // Capture stdout
+        const stdout = pyodide.runPython(`
+        import sys
+        from io import StringIO
+        sys.stdout = StringIO()
+        `);
+
+        await pyodide.runPythonAsync(`
+import sys
+sys.path.append('/')
+exec(open('/main.py').read())
+`);
+
+        // Get the captured output
+        const output = pyodide.runPython('sys.stdout.getvalue()');
+        out.textContent += output + "\nSimulation complete!";
       } catch (err) {
-        out.textContent += "\n❌ Error: " + err;
+        out.textContent += "\n❌ Error: \n" + err;
       }
     }
-
-    // Load Pyodide once when the page opens
+  
     initPyodide();
     window.runSim = runSim;
-  </script>
+  </script>   
 </body>
 </html>
